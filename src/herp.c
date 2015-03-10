@@ -3,12 +3,16 @@
  *
  *
  */
+
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
-#include <netinet/in.h>
+#include "rio.h"
+
 
 int usage(void) {
 
@@ -54,15 +58,34 @@ void loop(int listen_fd) {
   int conn_fd;
   socklen_t addr_len;
   struct sockaddr_in client_addr;
+  fd_set read_set, ready_set;
+
+  FD_ZERO(&read_set);
+  FD_SET(STDIN_FILENO, &read_set);
+  FD_SET(listen_fd, &read_set);
+
+  char buf[BUFSIZ];
 
   while (1) {
-    addr_len = sizeof client_addr;
-    conn_fd = accept(listen_fd, (struct sockaddr *) &client_addr, &addr_len);
-    if (conn_fd < 0) {
+    ready_set = read_set;
+    if (select(listen_fd + 1, &ready_set, NULL, NULL, NULL) < 0) {
       break;
     }
-    printf("received connection\n");
-    close(conn_fd);
+    if (FD_ISSET(STDIN_FILENO, &ready_set)) {
+      ssize_t nb = rio_read(STDIN_FILENO, buf, BUFSIZ);
+      printf("read %ld bytes.\n", nb);
+    }
+    if (FD_ISSET(listen_fd, &ready_set)) {
+      addr_len = sizeof client_addr;
+      conn_fd = accept(listen_fd, (struct sockaddr *) &client_addr, &addr_len);
+      if (conn_fd < 0) {
+        break;
+      }
+      ssize_t nb = rio_read(conn_fd, buf, BUFSIZ);
+      buf[nb] = '\0';
+      printf("received connection from %s\n", buf);
+      close(conn_fd);
+    }
   }
 
 }
