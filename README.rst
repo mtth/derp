@@ -7,7 +7,7 @@ To start the server:
 
 .. code-block:: bash
 
-  $ herp
+  $ herp 4848
 
 To start a client and connect it to the server:
 
