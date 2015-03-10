@@ -30,15 +30,18 @@ ssize_t rio_write(int fd, const void *buf, size_t n_bytes) {
   size_t total_written = 0;
   ssize_t n_written;
 
-  while (1) {
+  while (total_written < n_bytes) {
     n_written = write(fd, buf, n_bytes);
-    if (n_written < 0 && errno != EINTR) {
-      return -1;
+    if (n_written < 0) {
+      if (errno == EINTR) {
+        n_written = 0;
+      } else {
+        return -1;
+      }
     }
     total_written += n_written;
-    if (total_written == n_bytes) {
-      return 0;
-    }
   }
+
+  return total_written;
 
 }

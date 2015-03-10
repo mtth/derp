@@ -35,6 +35,40 @@ int get_fd(struct in_addr host, unsigned short port) {
 
 }
 
+void loop(int fd) {
+
+  char buf[BUFSIZ];
+  fd_set read_set, write_set, ready_read_set, ready_write_set;
+
+  FD_ZERO(&read_set);
+  FD_ZERO(&write_set);
+  FD_SET(STDIN_FILENO, &read_set);
+  FD_SET(fd, &read_set);
+  FD_SET(fd, &write_set);
+
+  while (1) {
+    ready_read_set = read_set;
+    ready_write_set = write_set; // TODO: only if stuff waiting to be written.
+    if (select(fd + 1, &ready_read_set, &ready_write_set, NULL, NULL) < 0) {
+      printf("select error\n");
+      return;
+    }
+
+    if (FD_ISSET(STDIN_FILENO, &ready_read_set)) {
+      ssize_t nb = rio_read(STDIN_FILENO, buf, BUFSIZ);
+      printf("read %ld bytes.\n", nb);
+    }
+
+    if (FD_ISSET(fd, &ready_read_set)) {
+    }
+
+    if (FD_ISSET(fd, &ready_write_set)) {
+    }
+
+  }
+
+}
+
 int main(int argc, char **argv) {
 
   if (argc != 4) {
@@ -60,11 +94,6 @@ int main(int argc, char **argv) {
     return fd;
   }
 
-  printf("connected");
-
-  char *name = argv[3];
-  rio_write(fd, name, strnlen(name, 8));
-
-  return 0;
+  loop(fd);
 
 }
