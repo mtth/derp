@@ -4,14 +4,15 @@
  *
  */
 
+#include "rio.h"
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include <sys/socket.h>
-#include <string.h>
-#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "rio.h"
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 
 int get_fd(struct in_addr host, unsigned short port) {
@@ -76,15 +77,15 @@ int main(int argc, char **argv) {
     return -1;
   }
 
-  short port = (short) atol(argv[1]);
-  if (!port) {
-    printf("invalid port\n");
+  struct in_addr host;
+  if (!inet_aton(argv[1], &host)) {
+    printf("invalid ip\n");
     return -2;
   }
 
-  struct in_addr host;
-  if (!inet_aton(argv[2], &host)) {
-    printf("invalid ip\n");
+  short port = (short) atol(argv[2]);
+  if (!port) {
+    printf("invalid port\n");
     return -3;
   }
 

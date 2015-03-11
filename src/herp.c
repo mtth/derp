@@ -4,6 +4,8 @@
  *
  */
 
+#include "cbuf.h"
+#include "rio.h"
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,7 +13,20 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include "rio.h"
+
+
+struct derp { // Internal server's client connection representation.
+  int fd;
+  cbuf_t *read_buf, *write_buf;
+  struct derp *prev, *next;
+};
+typedef struct derp derp_t;
+
+struct {
+  unsigned int n_derps;
+  fd_set _rfd, _wfd;
+  derp_t *derps[FD_SETSIZE];
+} herp;
 
 
 int usage(void) {
@@ -53,31 +68,30 @@ int get_fd(unsigned short port) {
 
 }
 
-void loop(int listen_fd) {
+void loop(int fd) {
 
+  char buf[BUFSIZ];
   int conn_fd;
   socklen_t addr_len;
   struct sockaddr_in client_addr;
-  fd_set read_set, ready_set;
+  fd_set _read_set, read_set, _write_set, write_set;
 
   FD_ZERO(&read_set);
-  FD_SET(STDIN_FILENO, &read_set);
-  FD_SET(listen_fd, &read_set);
-
-  char buf[BUFSIZ];
+  FD_SET(fd, &read_set);
+  FD_SET(fd, &write_set);
 
   while (1) {
     ready_set = read_set;
-    if (select(listen_fd + 1, &ready_set, NULL, NULL, NULL) < 0) {
+    if (select(fd + 1, &ready_set, NULL, NULL, NULL) < 0) {
       break;
     }
     if (FD_ISSET(STDIN_FILENO, &ready_set)) {
       ssize_t nb = rio_read(STDIN_FILENO, buf, BUFSIZ);
       printf("read %ld bytes.\n", nb);
     }
-    if (FD_ISSET(listen_fd, &ready_set)) {
+    if (FD_ISSET(fd, &ready_set)) {
       addr_len = sizeof client_addr;
-      conn_fd = accept(listen_fd, (struct sockaddr *) &client_addr, &addr_len);
+      conn_fd = accept(fd, (struct sockaddr *) &client_addr, &addr_len);
       if (conn_fd < 0) {
         break;
       }

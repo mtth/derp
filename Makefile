@@ -1,12 +1,19 @@
-CFLAGS := -m64 -std=c99 -g -MMD -Wall -Wextra $(OPTFLAGS)
+CFLAGS := -m64 -std=c99 -g -MMD -Wall -Wextra -D_BSD_SOURCE $(OPTFLAGS)
 
 sources = $(wildcard src/*.c)
+objects = $(patsubst %.c, %.o, $(filter-out src/herp.c src/derp.c, $(sources)))
 
-.PHONY: clean
+.PHONY: clean test
 
 all: bin/derp bin/herp
 
-bin/%: src/%.o $(filter-out src/herp.c src/derp.c, $(sources)) | bin
+test: bin/test
+	./$<
+
+bin/test: $(patsubst %.c, %.o, $(wildcard test/*.c)) $(objects)
+	$(LINK.c) $^ -o $@
+
+bin/%: src/%.o $(objects) | bin
 	$(LINK.c) $^ -o $@
 
 bin:
