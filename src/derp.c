@@ -4,7 +4,6 @@
  *
  */
 
-#include "rio.h"
 #include "cbuf.h"
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -37,11 +36,14 @@ int get_fd(struct in_addr host, unsigned short port) {
 
 }
 
-int loop(int fd, char *id) {
+int loop(int fd, char *id, unsigned char id_len) {
 
   fd_set read_set, write_set, ready_read_set, ready_write_set;
 
-  if (rio_write(fd, id, strnlen(id, 8)) < 0) {
+  if (write(fd, &id_len, 1) < 0) {
+    goto error;
+  }
+  if (write(fd, id, id_len + 1) < 0) {
     goto error;
   }
   printf("connected\n");
@@ -105,8 +107,9 @@ int main(int argc, char **argv) {
   }
 
   char *id = argv[3];
-  if (strnlen(id, 8) > 8) {
-    printf("invalid id\n");
+  unsigned char id_len = strnlen(id, 255);
+  if (id_len == 255) {
+    printf("id too long\n");
     return -4;
   }
 
@@ -116,6 +119,6 @@ int main(int argc, char **argv) {
     return fd;
   }
 
-  return loop(fd, id);
+  return loop(fd, id, id_len);
 
 }

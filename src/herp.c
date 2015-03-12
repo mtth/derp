@@ -5,7 +5,6 @@
  */
 
 #include "cbuf.h"
-#include "rio.h"
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +38,10 @@ int usage(void) {
 
 }
 
+/**
+ * Setup the listening socket and return the corresponding descriptor.
+ *
+ */
 int get_fd(unsigned short port) {
 
   int fd = socket(PF_INET, SOCK_STREAM, 0);
@@ -71,37 +74,57 @@ int get_fd(unsigned short port) {
 
 }
 
+/**
+ * Retrieve a client from a descriptor.
+ *
+ */
+derp_t *get_derp(int fd) {
+
+  derp_t *derp_p = herp.head.next;
+  while (derp_p != NULL || derp_p->fd != fd) {
+    derp_p = derp_p->next;
+  }
+  return derp_p;
+
+}
+
+/**
+ * Register a new client.
+ *
+ */
 derp_t *add_derp(int fd) {
 
-  printf("conn from fd %d\n", fd);
   if (fd < 0) {
     goto error_fd;
   }
 
-  char *id = malloc((MAX_ID_SIZE + 1) * sizeof *id);
+  unsigned char id_len;
+  if (read(fd, &id_len, 1) < 0) {
+    goto error_fd;
+  }
+
+  char *id = malloc((id_len + 1) * sizeof *id);
   if (id == NULL) {
+    goto error_fd;
+  }
+
+  if (read(fd, id, id_len) < 0) {
     goto error_id;
   }
 
-  printf("retrieving id\n");
-  if (read(fd, id, MAX_ID_SIZE + 1) < 0) {
-    goto error_read_buf;
-  }
-  printf("id: %s\n", id);
-
   cbuf_t *read_buf = cbuf_new(BUFFER_SIZE);
   if (read_buf == NULL) {
-    goto error_read_buf;
+    goto error_id;
   }
 
   cbuf_t *write_buf = cbuf_new(BUFFER_SIZE);
   if (write_buf == NULL) {
-    goto error_write_buf;
+    goto error_read_buf;
   }
 
   derp_t *derp_p = malloc(sizeof *derp_p);
   if (derp_p == NULL) {
-    goto error_derp;
+    goto error_write_buf;
   }
 
   derp_p->fd = fd;
@@ -116,20 +139,37 @@ derp_t *add_derp(int fd) {
 
   return derp_p;
 
-error_derp:
-  cbuf_del(write_buf);
 error_write_buf:
-  cbuf_del(read_buf);
+  cbuf_del(write_buf);
 error_read_buf:
-  free(id);
+  cbuf_del(read_buf);
 error_id:
-  close(fd);
+  free(id);
 error_fd:
+  close(fd);
   return NULL;
 
 }
 
+/**
+ * Deregister a client and free its resources.
+ *
+ */
 int remove_derp(int fd) {
+
+  derp_t *derp_p = get_derp(fd);
+  if (derp_p == NULL) {
+    return -1;
+  }
+
+  derp_p->next->prev = derp_p->prev;
+  derp_p->prev->next = derp_p->next;
+
+  cbuf_del(derp_p->read_buf);
+  cbuf_del(derp_p->write_buf);
+  free(derp_p->id);
+  close(derp_p->fd);
+  free(derp_p);
 
   return 0;
 
