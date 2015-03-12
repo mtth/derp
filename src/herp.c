@@ -15,17 +15,20 @@
 #include <unistd.h>
 
 
+#define MAX_ID_SIZE 8
+#define BUFFER_SIZE 1024
+
 struct derp { // Internal server's client connection representation.
   int fd;
+  char *id;
   cbuf_t *read_buf, *write_buf;
   struct derp *prev, *next;
 };
 typedef struct derp derp_t;
 
 struct {
-  unsigned int n_derps;
-  fd_set _rfd, _wfd;
-  derp_t *derps[FD_SETSIZE];
+  fd_set fds;
+  derp_t head, tail;
 } herp;
 
 
@@ -68,39 +71,112 @@ int get_fd(unsigned short port) {
 
 }
 
-void loop(int fd) {
+derp_t *add_derp(int fd) {
 
-  char buf[BUFSIZ];
+  printf("conn from fd %d\n", fd);
+  if (fd < 0) {
+    goto error_fd;
+  }
+
+  char *id = malloc((MAX_ID_SIZE + 1) * sizeof *id);
+  if (id == NULL) {
+    goto error_id;
+  }
+
+  printf("retrieving id\n");
+  if (read(fd, id, MAX_ID_SIZE + 1) < 0) {
+    goto error_read_buf;
+  }
+  printf("id: %s\n", id);
+
+  cbuf_t *read_buf = cbuf_new(BUFFER_SIZE);
+  if (read_buf == NULL) {
+    goto error_read_buf;
+  }
+
+  cbuf_t *write_buf = cbuf_new(BUFFER_SIZE);
+  if (write_buf == NULL) {
+    goto error_write_buf;
+  }
+
+  derp_t *derp_p = malloc(sizeof *derp_p);
+  if (derp_p == NULL) {
+    goto error_derp;
+  }
+
+  derp_p->fd = fd;
+  derp_p->id = id;
+  derp_p->read_buf = read_buf;
+  derp_p->write_buf = write_buf;
+
+  FD_SET(fd, &herp.fds);
+  derp_p->prev = herp.tail.prev;
+  herp.tail.prev->next = derp_p;
+  herp.tail.prev = derp_p;
+
+  return derp_p;
+
+error_derp:
+  cbuf_del(write_buf);
+error_write_buf:
+  cbuf_del(read_buf);
+error_read_buf:
+  free(id);
+error_id:
+  close(fd);
+error_fd:
+  return NULL;
+
+}
+
+int remove_derp(int fd) {
+
+  return 0;
+
+}
+
+int loop(int fd) {
+
   int conn_fd;
-  socklen_t addr_len;
+  derp_t *derp_p;
   struct sockaddr_in client_addr;
-  fd_set _read_set, read_set, _write_set, write_set;
+  socklen_t addr_len;
+  fd_set readable_fds, writable_fds;
 
-  FD_ZERO(&read_set);
-  FD_SET(fd, &read_set);
-  FD_SET(fd, &write_set);
+  herp.head.next = &herp.tail;
+  herp.tail.prev = &herp.head;
 
   while (1) {
-    ready_set = read_set;
-    if (select(fd + 1, &ready_set, NULL, NULL, NULL) < 0) {
-      break;
+
+    readable_fds = writable_fds = herp.fds;
+    FD_SET(fd, &readable_fds);
+    if (select(fd + 1, &readable_fds, &writable_fds, NULL, NULL) < 0) {
+      goto error;
     }
-    if (FD_ISSET(STDIN_FILENO, &ready_set)) {
-      ssize_t nb = rio_read(STDIN_FILENO, buf, BUFSIZ);
-      printf("read %ld bytes.\n", nb);
-    }
-    if (FD_ISSET(fd, &ready_set)) {
+
+    // Handle new connection.
+    if (FD_ISSET(fd, &readable_fds)) {
       addr_len = sizeof client_addr;
       conn_fd = accept(fd, (struct sockaddr *) &client_addr, &addr_len);
-      if (conn_fd < 0) {
-        break;
+      derp_p = add_derp(conn_fd);
+      if (derp_p == NULL) {
+        printf("failed client connection");
+      } else {
+        printf("new connection from %s\n", derp_p->id);
       }
-      ssize_t nb = rio_read(conn_fd, buf, BUFSIZ);
-      buf[nb] = '\0';
-      printf("received connection from %s\n", buf);
-      close(conn_fd);
     }
+
+    // Check for new client messages.
+
+    // Send any buffered messages.
+
   }
+
+  return 0;
+
+error:
+  close(fd);
+  return -1;
 
 }
 
@@ -120,6 +196,6 @@ int main(int argc, char **argv) {
     return fd;
   }
 
-  loop(fd);
+  return loop(fd);
 
 }

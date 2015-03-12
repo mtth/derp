@@ -2,6 +2,7 @@
 #include "rio.h"
 #include <stdlib.h>
 
+
 struct cbuf {
   size_t max_size, size;
   char *start, *end, *data;
@@ -14,7 +15,8 @@ cbuf_t *cbuf_new(size_t max_size) {
     return NULL;
   }
 
-  char *data = malloc(max_size * sizeof *data);
+  char *data = malloc((max_size + 1) * sizeof *data);
+  // We use one more byte to be able to distinguish between full vs. empty.
   if (data == NULL) {
     free(cbuf_p);
     return NULL;
@@ -23,67 +25,73 @@ cbuf_t *cbuf_new(size_t max_size) {
   cbuf_p->max_size = max_size;
   cbuf_p->size = 0;
   cbuf_p->start = cbuf_p->end = cbuf_p->data = data;
+  return cbuf_p;
 
 }
 
-size_t cbuf_get_size(cbuf_t *cbuf_p) {
+size_t cbuf_size(cbuf_t *cbuf_p) {
 
   return cbuf_p->size;
 
 }
 
-ssize_t cbuf_read_from_fd(cbuf_t *cbuf_p, int fd, size_t count) {
+ssize_t cbuf_write(cbuf_t *cbuf_p, int fd, size_t max_bytes) {
 
-  if (count > (cbuf_p->max_size - cbuf_p->size)) {
+  if (max_bytes > (cbuf_p->max_size - cbuf_p->size)) {
     return -1;
   }
 
-  char *start = cbuf_p->start;
-  char *data = cbuf_p->data;
-  ssize_t overshoot = start + count - (data + cbuf_p->size);
-  ssize_t read;
+  ssize_t overshoot = (
+    cbuf_p->end + max_bytes - (cbuf_p->data + cbuf_p->max_size + 1)
+  );
+  ssize_t num_bytes;
   if (overshoot <= 0) {
-    read = rio_read(fd, start, count);
-    cbuf_p->end += read;
-  } else {
-    read = rio_read(fd, start, count - overshoot);
-    if (read == count - overshoot) {
-      ssize_t read_extra = rio_read(fd, data, overshoot);
-      read += read_extra;
-      cbuf_p->end = data + read_extra;
+    num_bytes = rio_read(fd, cbuf_p->end, max_bytes);
+    if (overshoot) {
+      cbuf_p->end += num_bytes;
     } else {
-      cbuf_p->end += read;
+      cbuf_p->end = 0;
+    }
+  } else {
+    num_bytes = rio_read(fd, cbuf_p->end, max_bytes - overshoot);
+    if (num_bytes == (ssize_t) (max_bytes - overshoot)) {
+      ssize_t read_extra = rio_read(fd, cbuf_p->data, overshoot);
+      num_bytes += read_extra;
+      cbuf_p->end = cbuf_p->data + read_extra;
+    } else {
+      cbuf_p->end += num_bytes;
     }
   }
-  cbuf_p->size += read;
-  return read;
+  cbuf_p->size += num_bytes;
+  return num_bytes;
 
 }
 
-ssize_t cbuf_write_to_fd(cbuf_t *cbuf_p, int fd, size_t count) {
+ssize_t cbuf_read(cbuf_t *cbuf_p, int fd, size_t max_bytes) {
 
-  if (count > cbuf_p->size) {
+  if (max_bytes > cbuf_p->size) {
     return -1;
   }
 
-  char *data = cbuf_p->data;
-  ssize_t overshoot = cbuf_p->start + count - (data + cbuf_p->size);
-  ssize_t written;
+  ssize_t overshoot = (
+    cbuf_p->start + max_bytes - (cbuf_p->data + cbuf_p->max_size + 1)
+  );
+  ssize_t num_bytes;
   if (overshoot <= 0) {
-    written = rio_write(fd, cbuf_p->start, count);
-    cbuf_p->start += written;
+    num_bytes = rio_write(fd, cbuf_p->start, max_bytes);
+    cbuf_p->start += num_bytes;
   } else {
-    written = rio_write(fd, cbuf_p->start, count - overshoot);
-    if (written == count - overshoot) {
-      ssize_t written_extra = rio_write(fd, data, overshoot);
-      written += written_extra;
-      cbuf_p->start = data + written_extra;
+    num_bytes = rio_write(fd, cbuf_p->start, max_bytes - overshoot);
+    if (num_bytes == (ssize_t) (max_bytes - overshoot)) {
+      ssize_t written_extra = rio_write(fd, cbuf_p->data, overshoot);
+      num_bytes += written_extra;
+      cbuf_p->start = cbuf_p->data + written_extra;
     } else {
-      cbuf_p->start += written;
+      cbuf_p->start += num_bytes;
     }
   }
-  cbuf_p->size -= written;
-  return written;
+  cbuf_p->size -= num_bytes;
+  return num_bytes;
 
 }
 

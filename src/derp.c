@@ -5,6 +5,7 @@
  */
 
 #include "rio.h"
+#include "cbuf.h"
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <stdio.h>
@@ -36,10 +37,20 @@ int get_fd(struct in_addr host, unsigned short port) {
 
 }
 
-void loop(int fd) {
+int loop(int fd, char *id) {
 
-  char buf[BUFSIZ];
   fd_set read_set, write_set, ready_read_set, ready_write_set;
+
+  if (rio_write(fd, id, strnlen(id, 8)) < 0) {
+    goto error;
+  }
+  printf("connected\n");
+  // TODO: wait for ok response (to be implemented as well).
+
+  cbuf_t *cbuf_p = cbuf_new(BUFSIZ - 1);
+  if (cbuf_p == NULL) {
+    goto error;
+  }
 
   FD_ZERO(&read_set);
   FD_ZERO(&write_set);
@@ -52,21 +63,25 @@ void loop(int fd) {
     ready_write_set = write_set; // TODO: only if stuff waiting to be written.
     if (select(fd + 1, &ready_read_set, &ready_write_set, NULL, NULL) < 0) {
       printf("select error\n");
-      return;
+      return -2;
     }
 
-    if (FD_ISSET(STDIN_FILENO, &ready_read_set)) {
-      ssize_t nb = rio_read(STDIN_FILENO, buf, BUFSIZ);
-      printf("read %ld bytes.\n", nb);
-    }
+    // if (FD_ISSET(STDIN_FILENO, &ready_read_set)) {
+    //   ssize_t nb = rio_read(STDIN_FILENO, buf, BUFSIZ);
+    //   printf("read %ld bytes.\n", nb);
+    // }
 
-    if (FD_ISSET(fd, &ready_read_set)) {
-    }
+    // if (FD_ISSET(fd, &ready_read_set)) {
+    // }
 
-    if (FD_ISSET(fd, &ready_write_set)) {
-    }
+    // if (FD_ISSET(fd, &ready_write_set)) {
+    // }
 
   }
+
+error:
+  close(fd);
+  return -1;
 
 }
 
@@ -89,12 +104,18 @@ int main(int argc, char **argv) {
     return -3;
   }
 
+  char *id = argv[3];
+  if (strnlen(id, 8) > 8) {
+    printf("invalid id\n");
+    return -4;
+  }
+
   int fd = get_fd(host, port);
   if (fd < 0) {
     printf("error while connecting");
     return fd;
   }
 
-  loop(fd);
+  return loop(fd, id);
 
 }

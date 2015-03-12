@@ -10,7 +10,7 @@ all: bin/derp bin/herp
 test: bin/test
 	./$<
 
-bin/test: $(patsubst %.c, %.o, $(wildcard test/*.c)) $(objects)
+bin/test: $(patsubst %.c, %.o, $(wildcard test/*.c)) $(objects) | bin
 	$(LINK.c) $^ -o $@
 
 bin/%: src/%.o $(objects) | bin
