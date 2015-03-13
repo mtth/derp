@@ -5,6 +5,7 @@
  */
 
 #include "cbuf.h"
+#include <assert.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <stdio.h>
@@ -38,20 +39,22 @@ int get_fd(struct in_addr host, unsigned short port) {
 
 int loop(int fd, char *id, unsigned char id_len) {
 
+  assert(fd > 0);
+
   fd_set read_set, write_set, ready_read_set, ready_write_set;
 
   if (write(fd, &id_len, 1) < 0) {
-    goto error;
+    goto error_fd;
   }
   if (write(fd, id, id_len + 1) < 0) {
-    goto error;
+    goto error_fd;
   }
   printf("connected\n");
   // TODO: wait for ok response (to be implemented as well).
 
-  cbuf_t *cbuf_p = cbuf_new(BUFSIZ - 1);
+  cbuf_t *cbuf_p = cbuf_new(BUFSIZ);
   if (cbuf_p == NULL) {
-    goto error;
+    goto error_fd;
   }
 
   FD_ZERO(&read_set);
@@ -65,23 +68,30 @@ int loop(int fd, char *id, unsigned char id_len) {
     ready_write_set = write_set; // TODO: only if stuff waiting to be written.
     if (select(fd + 1, &ready_read_set, &ready_write_set, NULL, NULL) < 0) {
       printf("select error\n");
-      return -2;
+      goto error_cbuf;
     }
 
-    // if (FD_ISSET(STDIN_FILENO, &ready_read_set)) {
-    //   ssize_t nb = rio_read(STDIN_FILENO, buf, BUFSIZ);
-    //   printf("read %ld bytes.\n", nb);
-    // }
+    if (FD_ISSET(STDIN_FILENO, &ready_read_set)) {
+      ssize_t nb = cbuf_write(cbuf_p, STDIN_FILENO, BUFSIZ);
+      printf("read %ld bytes.\n", nb);
+      if (nb < 0) {
+        goto error_cbuf;
+      }
+      cbuf_read(cbuf_p, fd, nb);
+    }
 
-    // if (FD_ISSET(fd, &ready_read_set)) {
-    // }
+    if (FD_ISSET(fd, &ready_read_set)) {
+      // TODO: print to standard out messages received.
+    }
 
     // if (FD_ISSET(fd, &ready_write_set)) {
     // }
 
   }
 
-error:
+error_cbuf:
+  cbuf_del(cbuf_p);
+error_fd:
   close(fd);
   return -1;
 
