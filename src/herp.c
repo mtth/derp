@@ -173,7 +173,7 @@ void derp_on_readable(derp_t *derp) {
     printf("new client: %s\n", derp_id);
   } else if (derp->status == DERP_WAITING) {
     ssize_t n = cbuf_write(derp->recv_buf, derp->fd, BUFSIZ);
-    // printf("received %ld bytes from %s\n", n, derp->id);
+    printf("received %ld bytes from %s\n", n, derp->id);
     if (n > 0) {
       char buf[BUFSIZ];
       cbuf_save(derp->recv_buf, buf, n);
@@ -284,9 +284,10 @@ int loop(int fd) {
     // Unregister clients marked for deletion.
     iter = dlist_get(herp.derps, 0);
     while (iter != NULL) {
-      derp = iter->val;
       dlist_iter_t *next = dlist_next(iter);
+      derp = iter->val;
       if (derp->status == DERP_CLOSING) {
+        printf("closing connection to %s\n", derp->id);
         derp_del(derp);
         dlist_remove(herp.derps, iter);
       }

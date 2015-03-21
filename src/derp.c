@@ -61,9 +61,9 @@ int loop(int fd, char *id, unsigned char id_len) {
   FD_ZERO(&write_set);
   FD_SET(STDIN_FILENO, &read_set);
   FD_SET(fd, &read_set);
-  FD_SET(fd, &write_set);
 
   while (1) {
+
     ready_read_set = read_set;
     ready_write_set = write_set; // TODO: only if stuff waiting to be written.
     if (select(fd + 1, &ready_read_set, &ready_write_set, NULL, NULL) < 0) {
@@ -73,19 +73,29 @@ int loop(int fd, char *id, unsigned char id_len) {
 
     if (FD_ISSET(STDIN_FILENO, &ready_read_set)) {
       ssize_t nb = cbuf_write(cbuf_p, STDIN_FILENO, BUFSIZ);
-      printf("read %ld bytes.\n", nb);
       if (nb < 0) {
         goto error_cbuf;
       }
-      cbuf_read(cbuf_p, fd, nb);
+      FD_SET(fd, &write_set);
     }
 
     if (FD_ISSET(fd, &ready_read_set)) {
-      // TODO: print to standard out messages received.
+      char buf[BUFSIZ];
+      ssize_t nb = read(fd, buf, BUFSIZ);
+      if (nb > 0) {
+        write(STDIN_FILENO, buf, nb);
+      }
     }
 
-    // if (FD_ISSET(fd, &ready_write_set)) {
-    // }
+    if (FD_ISSET(fd, &ready_write_set)) {
+      ssize_t nb = cbuf_read(cbuf_p, fd, cbuf_size(cbuf_p));
+      if (nb < 0) {
+        goto error_cbuf;
+      }
+      if (!cbuf_size(cbuf_p)) {
+        FD_CLR(fd, &write_set);
+      }
+    }
 
   }
 
