@@ -5,6 +5,7 @@
  */
 
 #include "cbuf.h"
+#include "dlist.h"
 #include <assert.h>
 #include <netinet/in.h>
 #include <stdio.h>
@@ -14,34 +15,30 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-
 #define BUFFER_SIZE 1024
 
 enum derp_status {
   DERP_STARTING,
-  DERP_OK,
+  DERP_WAITING,
+  DERP_RECEIVING,
   DERP_CLOSING
 };
 
-struct derp { // Internal server's client connection representation.
+struct derp {
   enum derp_status status;
   int fd;
   char *id;
   cbuf_t *recv_buf, *send_buf;
-  struct derp *prev, *next;
 };
 typedef struct derp derp_t;
 
 struct {
   fd_set readable, writable;
-  derp_t head, tail;
+  dlist_t *derps;
 } herp;
 
 
-/**
- * Setup the listening socket and return the corresponding descriptor.
- *
- */
+// Setup the listening socket and return the corresponding descriptor.
 int get_fd(unsigned short port) {
 
   int fd = socket(PF_INET, SOCK_STREAM, 0);
@@ -76,29 +73,7 @@ error:
 
 }
 
-/**
- * Retrieve a client from a descriptor.
- *
- */
-derp_t *derp_find(int fd) {
-
-  assert(fd > 0);
-
-  derp_t *derp_p = herp.head.next;
-  while (derp_p != NULL || derp_p->fd != fd) {
-    derp_p = derp_p->next;
-  }
-
-  return derp_p;
-
-}
-
-/**
- * Register a new client.
- *
- * Note that this doesn't set its ID.
- *
- */
+// Create a new client. Note that this doesn't set its ID or register it.
 derp_t *derp_new(int fd) {
 
   assert(fd > 0);
@@ -113,24 +88,20 @@ derp_t *derp_new(int fd) {
     goto error_recv_buf;
   }
 
-  derp_t *derp_p = malloc(sizeof *derp_p);
-  if (derp_p == NULL) {
+  derp_t *derp = malloc(sizeof *derp);
+  if (derp == NULL) {
     goto error_send_buf;
   }
 
-  derp_p->status = DERP_STARTING;
-  derp_p->fd = fd;
-  derp_p->id = NULL;
-  derp_p->recv_buf = recv_buf;
-  derp_p->send_buf = send_buf;
+  derp->status = DERP_STARTING;
+  derp->fd = fd;
+  derp->id = NULL;
+  derp->recv_buf = recv_buf;
+  derp->send_buf = send_buf;
 
   FD_SET(fd, &herp.readable);
-  derp_p->next = &herp.tail;
-  derp_p->prev = herp.tail.prev;
-  herp.tail.prev->next = derp_p;
-  herp.tail.prev = derp_p;
 
-  return derp_p;
+  return derp;
 
 error_send_buf:
   cbuf_del(send_buf);
@@ -142,39 +113,35 @@ error_fd:
 
 }
 
-/**
- * De-register a client and free its resources.
- *
- */
-void derp_del(derp_t *derp_p) {
+// Destroy a client and free its resources.
+void derp_del(derp_t *derp) {
 
-  assert(derp_p != NULL && derp_p->status == DERP_CLOSING);
+  assert(derp != NULL && derp->status == DERP_CLOSING);
 
-  derp_p->next->prev = derp_p->prev;
-  derp_p->prev->next = derp_p->next;
-
-  FD_CLR(derp_p->fd, &herp.readable);
-  FD_CLR(derp_p->fd, &herp.writable);
-  cbuf_del(derp_p->recv_buf);
-  cbuf_del(derp_p->send_buf);
-  close(derp_p->fd);
-  if (derp_p->id != NULL) {
-    free(derp_p->id);
+  FD_CLR(derp->fd, &herp.readable);
+  FD_CLR(derp->fd, &herp.writable);
+  cbuf_del(derp->recv_buf);
+  cbuf_del(derp->send_buf);
+  close(derp->fd);
+  if (derp->id != NULL) {
+    free(derp->id);
   }
-  free(derp_p);
+  free(derp);
 
 }
 
 void derp_broadcast(char *msg, size_t len) {
 
-  derp_t *derp_p = herp.head.next;
-  while (derp_p->next != NULL) {
-    if (cbuf_load(derp_p->send_buf, msg, len) < 0) {
-      derp_p->status = DERP_CLOSING;
+  dlist_iter_t *iter = dlist_get(herp.derps, 0);
+  derp_t *derp;
+  while (iter != NULL) {
+    derp = iter->val;
+    if (cbuf_load(derp->send_buf, msg, len) < 0) {
+      derp->status = DERP_CLOSING;
     } else {
-      FD_SET(derp_p->fd, &herp.writable);
+      FD_SET(derp->fd, &herp.writable);
     }
-    derp_p = derp_p->next;
+    iter = dlist_next(iter);
   }
 
 }
@@ -183,33 +150,33 @@ void derp_broadcast(char *msg, size_t len) {
  * "Callback" for when a client is readable.
  *
  */
-void derp_on_readable(derp_t *derp_p) {
+void derp_on_readable(derp_t *derp) {
 
-  assert(derp_p != NULL);
+  assert(derp != NULL);
 
-  if (derp_p->status == DERP_STARTING) {
+  if (derp->status == DERP_STARTING) {
     unsigned char id_len;
-    if (read(derp_p->fd, &id_len, 1) < 0) {
+    if (read(derp->fd, &id_len, 1) < 0) {
       goto error;
     }
     char *derp_id = malloc((id_len + 1) * sizeof *derp_id);
     if (derp_id == NULL) {
       goto error;
     }
-    if (read(derp_p->fd, derp_id, id_len + 1) < id_len + 1) {
+    if (read(derp->fd, derp_id, id_len + 1) < id_len + 1) {
       // TODO: allow receiving ID over several reads.
       free(derp_id);
       goto error;
     }
-    derp_p->id = derp_id;
-    derp_p->status = DERP_OK;
+    derp->id = derp_id;
+    derp->status = DERP_WAITING;
     printf("new client: %s\n", derp_id);
-  } else if (derp_p->status == DERP_OK) {
-    ssize_t n = cbuf_write(derp_p->recv_buf, derp_p->fd, BUFSIZ);
-    // printf("received %ld bytes from %s\n", n, derp_p->id);
+  } else if (derp->status == DERP_WAITING) {
+    ssize_t n = cbuf_write(derp->recv_buf, derp->fd, BUFSIZ);
+    // printf("received %ld bytes from %s\n", n, derp->id);
     if (n > 0) {
       char buf[BUFSIZ];
-      cbuf_save(derp_p->recv_buf, buf, n);
+      cbuf_save(derp->recv_buf, buf, n);
       derp_broadcast(buf, (size_t) n);
     } else { // Disconnect.
       goto error;
@@ -221,7 +188,7 @@ void derp_on_readable(derp_t *derp_p) {
   return;
 
 error:
-  derp_p->status = DERP_CLOSING;
+  derp->status = DERP_CLOSING;
 
 }
 
@@ -231,43 +198,25 @@ error:
  * This should only ever happen if the client has data waiting to be sent.
  *
  */
-void derp_on_writable(derp_t *derp_p) {
+void derp_on_writable(derp_t *derp) {
 
   assert(
-    derp_p != NULL &&
-    derp_p->status == DERP_OK &&
-    cbuf_size(derp_p->send_buf)
+    derp != NULL &&
+    derp->status == DERP_WAITING &&
+    cbuf_size(derp->send_buf)
   );
 
-  cbuf_t *buf = derp_p->send_buf;
-  if (cbuf_read(buf, derp_p->fd, cbuf_size(buf)) < 0) {
+  cbuf_t *buf = derp->send_buf;
+  if (cbuf_read(buf, derp->fd, cbuf_size(buf)) < 0) {
     goto error;
   }
   if (!cbuf_size(buf)) {
-    FD_CLR(derp_p->fd, &herp.writable);
+    FD_CLR(derp->fd, &herp.writable);
   }
   return;
 
 error:
-  derp_p->status = DERP_CLOSING;
-
-}
-
-/**
- * Remove closing clients.
- *
- */
-void derp_cleanup() {
-
-  derp_t *a, *b;
-  a = herp.head.next;
-  while (a != NULL) {
-    b = a->next;
-    if (a->status == DERP_CLOSING) {
-      derp_del(a);
-    }
-    a = b;
-  }
+  derp->status = DERP_CLOSING;
 
 }
 
@@ -280,13 +229,13 @@ int loop(int fd) {
   assert(fd > 0);
 
   int conn_fd;
-  derp_t *derp_p;
+  derp_t *derp;
+  dlist_iter_t *iter;
   struct sockaddr_in client_addr;
   socklen_t addr_len;
   fd_set readable_fds, writable_fds;
 
-  herp.head.next = &herp.tail;
-  herp.tail.prev = &herp.head;
+  herp.derps = dlist_new();
 
   while (1) {
 
@@ -303,33 +252,46 @@ int loop(int fd) {
     if (FD_ISSET(fd, &readable_fds)) {
       addr_len = sizeof client_addr;
       conn_fd = accept(fd, (struct sockaddr *) &client_addr, &addr_len);
-      derp_p = derp_new(conn_fd);
-      if (derp_p == NULL) {
+      derp = derp_new(conn_fd);
+      if (derp == NULL) {
         printf("failed client connection\n");
       } else {
+        dlist_insert(herp.derps, 0, derp);
         printf("new connection\n"); // TODO: add IP.
       }
     }
 
     // Send any buffered messages.
-    derp_p = herp.head.next;
-    while (derp_p != NULL) {
-      if (FD_ISSET(derp_p->fd, &writable_fds)) {
-        derp_on_writable(derp_p);
+    iter = dlist_get(herp.derps, 0);
+    while (iter != NULL) {
+      derp = iter->val;
+      if (FD_ISSET(derp->fd, &writable_fds)) {
+        derp_on_writable(derp);
       }
-      derp_p = derp_p->next;
+      iter = dlist_next(iter);
     }
 
     // Check for new client messages.
-    derp_p = herp.head.next;
-    while (derp_p != NULL) {
-      if (FD_ISSET(derp_p->fd, &readable_fds)) {
-        derp_on_readable(derp_p);
+    iter = dlist_get(herp.derps, 0);
+    while (iter != NULL) {
+      derp = iter->val;
+      if (FD_ISSET(derp->fd, &readable_fds)) {
+        derp_on_readable(derp);
       }
-      derp_p = derp_p->next;
+      iter = dlist_next(iter);
     }
 
-    derp_cleanup(); // Unregister clients marked for deletion.
+    // Unregister clients marked for deletion.
+    iter = dlist_get(herp.derps, 0);
+    while (iter != NULL) {
+      derp = iter->val;
+      dlist_iter_t *next = dlist_next(iter);
+      if (derp->status == DERP_CLOSING) {
+        derp_del(derp);
+        dlist_remove(herp.derps, iter);
+      }
+      iter = next;
+    }
 
   }
 

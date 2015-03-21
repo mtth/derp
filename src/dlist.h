@@ -8,24 +8,21 @@
 
 #include <sys/types.h>
 
-
 struct dlist_iter {
-  void *elem;
+  void *val;
   struct dlist_iter *prev, *next;
 };
 typedef struct dlist_iter dlist_iter_t;
 typedef struct dlist dlist_t;
-enum dlist_order {DLIST_FWD, DLIST_BWD};
 
-dlist_t *dlist_new(void);
-size_t dlist_size(dlist_t *p);
-int dlist_insert(dlist_t *p, void *elem, ssize_t index);
-void *dlist_get(dlist_t *p, ssize_t index);
-void *dlist_pop(dlist_t *p, ssize_t index);
-void dlist_del(dlist_t *p);
+dlist_t *dlist_new(void); // Create new list.
+size_t dlist_size(dlist_t *p); // Current size.
+dlist_iter_t *dlist_insert(dlist_t *p, ssize_t n, void *val); // Insert new element at position n.
+dlist_iter_t *dlist_get(dlist_t *p, ssize_t n); // Retrieve element.
+void dlist_remove(dlist_t *p, dlist_iter_t *iter); // Remove element.
+void dlist_del(dlist_t *p); // Destroy list.
 
-dlist_iter_t dlist_iter(dlist_t *p, enum dlist_order order);
-void *dlist_next(dlist_iter_t *iter_p);
-void *dlist_prev(dlist_iter_t *iter_p);
+#define dlist_next(p) (p)->next->val == NULL ? NULL : (p)->next
+#define dlist_prev(p) (p)->prev->val == NULL ? NULL : (p)->prev
 
 #endif

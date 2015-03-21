@@ -5,62 +5,46 @@
 
 struct dlist {
   size_t size;
-  struct dlist_iter *first, *last;
+  struct dlist_iter *iter;
 };
 
 dlist_t *dlist_new(void) {
 
-  dlist_iter_t *first, *last;
-
-  first = malloc(sizeof *first);
-  if (first == NULL) {
+  dlist_iter_t *iter = malloc(sizeof *iter);
+  if (iter == NULL) {
     goto error;
   }
-  first->elem = NULL;
-  first->prev = NULL;
-
-  last = malloc(sizeof *last);
-  if (last == NULL) {
-    goto error_first;
-  }
-  last->elem = NULL;
-  last->next = NULL;
-
-  first->next = last;
-  last->prev = first;
+  iter->val = NULL;
+  iter->next = iter->prev = iter;
 
   dlist_t *p = malloc(sizeof *p);
   if (p == NULL) {
-    goto error_last;
+    goto error_iter;
   }
   p->size = 0;
-  p->first = first;
-  p->last = last;
+  p->iter = iter;
 
   return p;
 
-error_last:
-  free(last);
-error_first:
-  free(first);
+error_iter:
+  free(iter);
 error:
   return NULL;
 
 }
 
-static dlist_iter_t *iter_get(dlist_t *p, ssize_t index) {
+/* Helper. No size checking, can return flag element. */
+static dlist_iter_t *iter_get(dlist_t *p, ssize_t n) {
 
   assert(p != NULL);
 
-  dlist_iter_t *iter;
-  if (index >= 0) {
-    iter = p->first;
-    while (index-- && iter != NULL) {
+  dlist_iter_t *iter = p->iter;
+  if (n >= 0) {
+    while (n--) {
       iter = iter->next;
     }
   } else {
-    iter = p->last;
-    while (++index && iter != NULL) {
+    while (n++) {
       iter = iter->prev;
     }
   }
@@ -76,122 +60,72 @@ size_t dlist_size(dlist_t *p) {
 
 }
 
-int dlist_insert(dlist_t *p, void *elem, ssize_t index) {
+dlist_iter_t *dlist_insert(dlist_t *p, ssize_t n, void *val) {
 
   assert(p != NULL);
-  assert(elem != NULL);
+  assert(val != NULL);
 
-  dlist_iter_t *prev_iter;
-  if (index >= 0 && (size_t) index <= p->size) {
-    prev_iter = iter_get(p, index);
-  } else if (index < 0 && (size_t) (- index) <=  1 + p->size) {
-    prev_iter = iter_get(p, index - 1);
-  } else {
-    return -1;
+  if (
+    (n >= 0 && (size_t) n > p->size) ||
+    (n < 0 && (size_t) (- n) >  1 + p->size)
+  ) {
+    return NULL;
   }
-
-  assert(prev_iter != NULL && prev_iter->next != NULL);
 
   dlist_iter_t *iter = malloc(sizeof *iter);
   if (iter == NULL) {
-    return -1;
+    return NULL;
   }
-  iter->elem = elem;
-  iter->prev = prev_iter;
-  iter->next = prev_iter->next;
-  iter->next->prev = iter;
-  prev_iter->next = iter;
+  iter->val = val;
+
+  dlist_iter_t *prev = iter_get(p, n);
+  iter->prev = prev;
+  iter->next = prev->next;
+  prev->next->prev = iter;
+  prev->next = iter;
   p->size++;
-  return 0;
+  return iter;
 
 }
 
-void *dlist_get(dlist_t *p, ssize_t index) {
+dlist_iter_t *dlist_get(dlist_t *p, ssize_t n) {
 
   assert(p != NULL);
 
   dlist_iter_t *iter;
-  if (index >= 0 && (size_t) index <= p->size) {
-    iter = iter_get(p, index + 1);
-  } else if (index < 0 && (size_t) (- index) <= 1 + p->size) {
-    iter = iter_get(p, index - 1);
+  if (n >= 0 && (size_t) n <= p->size) {
+    iter = iter_get(p, n + 1);
+  } else if (n < 0 && (size_t) (- n) <= 1 + p->size) {
+    iter = iter_get(p, n);
   } else {
     return NULL;
   }
 
-  return iter->elem;
+  return iter;
 
 }
 
-void *dlist_pop(dlist_t *p, ssize_t index) {
+void dlist_remove(dlist_t *p, dlist_iter_t *iter) {
 
-  assert(p != NULL);
-
-  dlist_iter_t *iter;
-  if (index >= 0 && (size_t) index <= p->size) {
-    iter = iter_get(p, index + 1);
-  } else if (index < 0 && (size_t) (- index) <= 1 + p->size) {
-    iter = iter_get(p, index - 1);
-  } else {
-    return NULL;
-  }
+  assert(iter != NULL);
 
   iter->prev->next = iter->next;
   iter->next->prev = iter->prev;
   free(iter);
   p->size--;
-  return iter->elem;
 
 }
 
 void dlist_del(dlist_t *p) {
 
   assert(p != NULL);
-  // TODO
 
-}
-
-dlist_iter_t dlist_iter(dlist_t *p, enum dlist_order order) {
-
-  assert(p != NULL);
-
-  switch (order) {
-  case DLIST_FWD:
-    return *p->first;
-  case DLIST_BWD:
-    return *p->last;
+  dlist_iter_t *iter = p->iter->next;
+  while (iter->val) {
+    iter = iter->next;
+    free(iter->prev);
   }
-
-}
-
-void *dlist_next(dlist_iter_t *iter_p) {
-
-  assert(iter_p != NULL);
-  assert(iter_p->elem == NULL);
-
-  dlist_iter_t *next = iter_p->next;
-  if (next == NULL) {
-    return NULL;
-  }
-
-  iter_p->next = next->next;
-  iter_p->prev = iter_p;
-  return next->elem;
-
-}
-
-void *dlist_prev(dlist_iter_t *iter_p) {
-
-  assert(iter_p != NULL);
-  assert(iter_p->elem == NULL);
-
-  dlist_iter_t *prev = iter_p->prev;
-  if (prev == NULL) {
-    return NULL;
-  }
-
-  iter_p->prev = prev->prev;
-  iter_p->next = iter_p;
-  return prev->elem;
+  free(iter);
+  free(p);
 
 }
