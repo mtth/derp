@@ -13,4 +13,4 @@ To start a client and connect it to the server:
 
 .. code-block:: bash
 
-  $ derp localhost:4848
+  $ derp 127.0.0.1 4848 alice
