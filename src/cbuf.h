@@ -10,12 +10,13 @@ typedef struct cbuf cbuf_t;
  *
  */
 cbuf_t *cbuf_new(size_t max_size);
+// TODO: make this resizable rather than fixed size.
 
 /**
  * Number of bytes currently used in buffer.
  *
  */
-size_t cbuf_size(cbuf_t *p);
+size_t cbuf_size(const cbuf_t *p);
 
 /**
  * Load `bytes` array into buffer.
@@ -24,7 +25,7 @@ size_t cbuf_size(cbuf_t *p);
  * buffer doesn't have enough capacity.
  *
  */
-ssize_t cbuf_load(cbuf_t *p, char *bytes, size_t num_bytes);
+ssize_t cbuf_load(cbuf_t *p, const char *bytes, size_t num_bytes);
 
 /**
  * Load buffer from descriptor.

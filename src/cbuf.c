@@ -31,7 +31,7 @@ cbuf_t *cbuf_new(size_t max_size) {
 
 }
 
-size_t cbuf_size(cbuf_t *p) {
+size_t cbuf_size(const cbuf_t *p) {
 
   assert(p != NULL);
 
@@ -39,7 +39,7 @@ size_t cbuf_size(cbuf_t *p) {
 
 }
 
-ssize_t cbuf_load(cbuf_t *p, char *bytes, size_t num_bytes) {
+ssize_t cbuf_load(cbuf_t *p, const char *bytes, size_t num_bytes) {
 
   assert(p != NULL);
 

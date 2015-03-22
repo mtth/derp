@@ -34,7 +34,7 @@ error:
 }
 
 /* Helper. No size checking, can return flag element. */
-static dlist_iter_t *iter_get(dlist_t *p, ssize_t n) {
+static dlist_iter_t *iter_get(const dlist_t *p, ssize_t n) {
 
   assert(p != NULL);
 
@@ -52,7 +52,7 @@ static dlist_iter_t *iter_get(dlist_t *p, ssize_t n) {
 
 }
 
-size_t dlist_size(dlist_t *p) {
+size_t dlist_size(const dlist_t *p) {
 
   assert(p != NULL);
 
@@ -88,7 +88,7 @@ dlist_iter_t *dlist_insert(dlist_t *p, ssize_t n, void *val) {
 
 }
 
-dlist_iter_t *dlist_get(dlist_t *p, ssize_t n) {
+dlist_iter_t *dlist_get(const dlist_t *p, ssize_t n) {
 
   assert(p != NULL);
 

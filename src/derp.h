@@ -43,7 +43,7 @@ int derp_recv_msg(derp_t *p, char *dst);
  * if there is currently not enough space to buffer it.
  *
  */
-int derp_send_msg(derp_t *p, char *src, char len);
+int derp_send_msg(derp_t *p, const char *src, char len);
 
 /**
  * Load the receiving buffer with any incoming network data.

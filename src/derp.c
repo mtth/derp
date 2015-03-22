@@ -12,7 +12,7 @@ struct derp {
   cbuf_t *recv_buf, *send_buf;
 };
 
-derp_t *derp_new() {
+derp_t *derp_new(void) {
 
   cbuf_t *recv_buf = cbuf_new(DERP_BUF_LEN);
   if (recv_buf == NULL) {
@@ -71,7 +71,7 @@ int derp_recv_msg(derp_t *p, char *dst) {
 
 }
 
-int derp_send_msg(derp_t *p, char *src, char len) {
+int derp_send_msg(derp_t *p, const char *src, char len) {
 
   assert(p != NULL);
   assert(src != NULL);

@@ -23,7 +23,7 @@ dlist_t *dlist_new(void);
  * This operation is cached for a O(1) cost.
  *
  */
-size_t dlist_size(dlist_t *p);
+size_t dlist_size(const dlist_t *p);
 
 /**
  * Insert a new element at position `n`.
@@ -41,7 +41,7 @@ dlist_iter_t *dlist_insert(dlist_t *p, ssize_t n, void *val);
  * `-1` being the last). Returns null if `n` is an invalid index.
  *
  */
-dlist_iter_t *dlist_get(dlist_t *p, ssize_t n);
+dlist_iter_t *dlist_get(const dlist_t *p, ssize_t n);
 
 /**
  * Delete the corresponding list element.
