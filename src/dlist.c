@@ -93,7 +93,7 @@ dlist_iter_t *dlist_get(dlist_t *p, ssize_t n) {
   assert(p != NULL);
 
   dlist_iter_t *iter;
-  if (n >= 0 && (size_t) n <= p->size) {
+  if (n >= 0 && (size_t) n < p->size) {
     iter = iter_get(p, n + 1);
   } else if (n < 0 && (size_t) (- n) <= 1 + p->size) {
     iter = iter_get(p, n);

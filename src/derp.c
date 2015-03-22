@@ -1,144 +1,135 @@
-/**
- * Derp: client.
- *
- *
- */
-
 #include "cbuf.h"
+#include "derp.h"
 #include <assert.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <stdio.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <unistd.h>
 
+#define DERP_BUF_LEN 1024
 
-int get_fd(struct in_addr host, unsigned short port) {
+struct derp {
+  char available_msgs, pending_bytes;
+  cbuf_t *recv_buf, *send_buf;
+};
 
-  int fd = socket(PF_INET, SOCK_STREAM, 0);
-  if (fd < 0) {
-    return -1;
+derp_t *derp_new() {
+
+  cbuf_t *recv_buf = cbuf_new(DERP_BUF_LEN);
+  if (recv_buf == NULL) {
+    goto error;
   }
 
-  struct sockaddr_in addr;
-  memset(&addr, 0, sizeof addr);
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons(port);
-  addr.sin_addr = host;
-  if (connect(fd, (struct sockaddr *) &addr, sizeof addr) < 0) {
-    close(fd);
-    return -2;
+  cbuf_t *send_buf = cbuf_new(DERP_BUF_LEN);
+  if (send_buf == NULL) {
+    goto error_recv_buf;
   }
 
-  return fd;
+  derp_t *derp = malloc(sizeof *derp);
+  if (derp == NULL) {
+    goto error_send_buf;
+  }
+
+  derp->available_msgs = 0;
+  derp->pending_bytes = 0;
+  derp->recv_buf = recv_buf;
+  derp->send_buf = send_buf;
+  return derp;
+
+error_send_buf:
+  cbuf_del(send_buf);
+error_recv_buf:
+  cbuf_del(recv_buf);
+error:
+  return NULL;
 
 }
 
-int loop(int fd, char *id, unsigned char id_len) {
+void derp_del(derp_t *p) {
 
-  assert(fd > 0);
+  assert(p != NULL);
 
-  fd_set read_set, write_set, ready_read_set, ready_write_set;
-
-  if (write(fd, &id_len, 1) < 0) {
-    goto error_fd;
-  }
-  if (write(fd, id, id_len + 1) < 0) {
-    goto error_fd;
-  }
-  printf("connected\n");
-  // TODO: wait for ok response (to be implemented as well).
-
-  cbuf_t *cbuf_p = cbuf_new(BUFSIZ);
-  if (cbuf_p == NULL) {
-    goto error_fd;
-  }
-
-  FD_ZERO(&read_set);
-  FD_ZERO(&write_set);
-  FD_SET(STDIN_FILENO, &read_set);
-  FD_SET(fd, &read_set);
-
-  while (1) {
-
-    ready_read_set = read_set;
-    ready_write_set = write_set; // TODO: only if stuff waiting to be written.
-    if (select(fd + 1, &ready_read_set, &ready_write_set, NULL, NULL) < 0) {
-      printf("select error\n");
-      goto error_cbuf;
-    }
-
-    if (FD_ISSET(STDIN_FILENO, &ready_read_set)) {
-      ssize_t nb = cbuf_write(cbuf_p, STDIN_FILENO, BUFSIZ);
-      if (nb < 0) {
-        goto error_cbuf;
-      }
-      FD_SET(fd, &write_set);
-    }
-
-    if (FD_ISSET(fd, &ready_read_set)) {
-      char buf[BUFSIZ];
-      ssize_t nb = read(fd, buf, BUFSIZ);
-      if (nb > 0) {
-        write(STDIN_FILENO, buf, nb);
-      }
-    }
-
-    if (FD_ISSET(fd, &ready_write_set)) {
-      ssize_t nb = cbuf_read(cbuf_p, fd, cbuf_size(cbuf_p));
-      if (nb < 0) {
-        goto error_cbuf;
-      }
-      if (!cbuf_size(cbuf_p)) {
-        FD_CLR(fd, &write_set);
-      }
-    }
-
-  }
-
-error_cbuf:
-  cbuf_del(cbuf_p);
-error_fd:
-  close(fd);
-  return -1;
+  cbuf_del(p->recv_buf);
+  cbuf_del(p->send_buf);
+  free(p);
 
 }
 
-int main(int argc, char **argv) {
+int derp_recv_msg(derp_t *p, char *dst) {
 
-  if (argc != 4) {
-    printf("usage: derp HOST PORT NAME\n");
+  assert(p != NULL);
+  assert(dst != NULL);
+
+  if (!p->available_msgs) {
     return -1;
   }
 
-  struct in_addr host;
-  if (!inet_aton(argv[1], &host)) {
-    printf("invalid ip\n");
-    return -2;
+  char len;
+  cbuf_save(p->recv_buf, &len, 1);
+  cbuf_save(p->recv_buf, dst, len);
+  p->available_msgs--;
+  return len;
+
+}
+
+int derp_send_msg(derp_t *p, char *src, char len) {
+
+  assert(p != NULL);
+  assert(src != NULL);
+
+  // char len = strnlen(src, DERP_MAX_MSG_LEN) + 1;
+  if (len > DERP_MAX_MSG_LEN) {
+    return -1; // Message too long.
   }
 
-  short port = (short) atol(argv[2]);
-  if (!port) {
-    printf("invalid port\n");
-    return -3;
+  if (1 + len + cbuf_size(p->send_buf) > DERP_BUF_LEN) {
+    return -2; // Not enough buffer space.
   }
 
-  char *id = argv[3];
-  unsigned char id_len = strnlen(id, 255);
-  if (id_len == 255) {
-    printf("id too long\n");
-    return -4;
+  cbuf_load(p->send_buf, &len, 1);
+  cbuf_load(p->send_buf, src, len);
+  return 0;
+
+}
+
+int derp_on_readable_fd(derp_t *p, int fd) {
+
+  assert(p != NULL);
+
+  if (p->pending_bytes) {
+    ssize_t n = cbuf_write(p->recv_buf, fd, p->pending_bytes);
+    if (n <= 0) {
+      return -1;
+    }
+    p->pending_bytes -= n;
+  } else {
+    char n;
+    if (
+      read(fd, &n, 1) <= 0 ||
+      cbuf_load(p->recv_buf, &n, 1) < 0
+    ) {
+      return -1;
+    }
+    p->pending_bytes = n;
   }
 
-  int fd = get_fd(host, port);
-  if (fd < 0) {
-    printf("error while connecting");
-    return fd;
+  assert(p->pending_bytes >= 0);
+
+  if (!p->pending_bytes) {
+    p->available_msgs++;
+  }
+  return 0;
+
+}
+
+int derp_on_writable_fd(derp_t *p, int fd) {
+
+  assert(p != NULL);
+
+  ssize_t n = cbuf_size(p->send_buf);
+  if (cbuf_read(p->send_buf, fd, n) < 0) {
+    return -1;
   }
 
-  return loop(fd, id, id_len);
+  return cbuf_size(p->send_buf);
 
 }
