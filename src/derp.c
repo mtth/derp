@@ -76,13 +76,8 @@ int derp_send_msg(derp_t *p, const char *src, char len) {
   assert(p != NULL);
   assert(src != NULL);
 
-  // char len = strnlen(src, DERP_MAX_MSG_LEN) + 1;
-  if (len > DERP_MAX_MSG_LEN) {
-    return -1; // Message too long.
-  }
-
   if (1 + len + cbuf_size(p->send_buf) > DERP_BUF_LEN) {
-    return -2; // Not enough buffer space.
+    return -1; // Not enough buffer space.
   }
 
   cbuf_load(p->send_buf, &len, 1);

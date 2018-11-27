@@ -39,8 +39,8 @@ int derp_recv_msg(derp_t *p, char *dst);
  * Attempt to send a message.
  *
  * The message will be buffered until it can be written to the socket. The
- * function returns 0 if OK, -1 if the message is too long to be sent, and -2
- * if there is currently not enough space to buffer it.
+ * function returns 0 if OK, and -1 if there is currently not enough space to
+ * buffer it.
  *
  */
 int derp_send_msg(derp_t *p, const char *src, char len);

@@ -1,4 +1,4 @@
-CFLAGS := -m64 -std=c99 -g -MMD -Wall -Wextra -D_BSD_SOURCE $(OPTFLAGS)
+CFLAGS := -m64 -std=c99 -g -MMD -Wall -Wextra -D_DEFAULT_SOURCE $(OPTFLAGS)
 
 sources = $(wildcard src/*.c)
 objects = $(patsubst %.c, %.o, $(filter-out src/_herp.c src/_derp.c, $(sources)))
